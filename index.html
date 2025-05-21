@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepSeek AI Interface</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Orbitron', sans-serif;
+            overflow-x: hidden;
+        }
+        .navbar {
+            background-color: #1e1e1e;
+            box-shadow: 0 4px 6px rgba(0, 255, 255, 0.2);
+        }
+        .form-control {
+            background-color: #1e1e1e;
+            border: 1px solid #00FFFF;
+            color: #ffffff;
+            transition: box-shadow 0.3s ease, transform 0.2s ease;
+        }
+        .form-control:focus {
+            box-shadow: 0 0 15px #00FFFF;
+            border-color: #00FFFF;
+            transform: scale(1.02);
+        }
+        .btn-primary {
+            background-color: #00FFFF;
+            border: none;
+            color: #121212;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            animation: pulse 2s infinite;
+        }
+        .btn-primary:hover {
+            background-color: #9D00FF;
+            transform: scale(1.05);
+        }
+        .btn-secondary, .btn-voice {
+            background-color: #9D00FF;
+            border: none;
+            color: #ffffff;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+        }
+        .btn-secondary:hover, .btn-voice:hover {
+            background-color: #00FFFF;
+            color: #121212;
+            transform: scale(1.05);
+        }
+        .response {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+        .response.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .list-group-item {
+            background-color: #1e1e1e;
+            color: #ffffff;
+            border: 1px solid #00FFFF;
+            margin-bottom: 10px;
+            opacity: 0;
+            transform: translateX(-20px);
+            animation: slideIn 0.5s forwards;
+            animation-delay: calc(var(--index) * 0.1s);
+        }
+        @keyframes slideIn {
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+            100% { transform: scale(1); }
+        }
+        @media (max-width: 576px) {
+            #queryInput {
+                height: 120px;
+            }
+            .btn {
+                width: 100%;
+                margin-bottom: 10px;
+            }
+        }
+        .voice-toggle {
+            display: inline-block;
+            margin-left: 10px;
+        }
+        .tts-error {
+            color: #ff4444;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+        <nav class="navbar navbar-dark mb-4">
+            <div class="container-fluid">
+                <span class="navbar-brand mb-0 h1">Thezero AI</span>
+            </div>
+        </nav>
+        <div class="row justify-content-center">
+            <div class="col-12 col-md-8 col-lg-6">
+                <form id="queryForm">
+                    <div class="mb-3">
+                        <textarea class="form-control" id="queryInput" rows="4" placeholder="Ingresa tu consulta..."></textarea>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="submit" class="btn btn-primary">Enviar</button>
+                        <button type="button" class="btn btn-voice voice-toggle" id="voiceToggle">Voz: Masculina</button>
+                    </div>
+                </form>
+                <div id="responseArea" class="mt-4 response card p-3 bg-dark"></div>
+                <div id="history" class="mt-4">
+                    <h3>Historial</h3>
+                    <ul id="historyList" class="list-group"></ul>
+                    <button id="clearHistory" class="btn btn-secondary mt-3">Limpiar Historial</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script>
+        let history = [];
+        let isMaleVoice = true;
+        let voices = [];
+
+        // Initialize text-to-speech
+        const synth = window.speechSynthesis;
+
+        function loadVoices() {
+            voices = synth.getVoices();
+            if (voices.length === 0) {
+                // Some browsers load voices asynchronously
+                setTimeout(loadVoices, 100);
+            }
+        }
+
+        // Load voices on page load and when voices change
+        synth.onvoiceschanged = loadVoices;
+        loadVoices();
+
+        function speakText(text) {
+            if (!synth) {
+                displayTtsError('Tu navegador no soporta síntesis de voz.');
+                return;
+            }
+
+            // Ensure voices are loaded
+            if (voices.length === 0) {
+                displayTtsError('No se encontraron voces. Por favor, intenta de nuevo.');
+                return;
+            }
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'es-ES';
+
+            // Try to find a Spanish voice, prioritize male/female based on toggle
+            let selectedVoice = voices.find(v => v.lang.includes('es') && (
+                isMaleVoice ? !v.name.toLowerCase().includes('female') : v.name.toLowerCase().includes('female')
+            ));
+
+            // Fallback to any Spanish voice or first available voice
+            selectedVoice = selectedVoice || voices.find(v => v.lang.includes('es')) || voices[0];
+
+            if (!selectedVoice) {
+                displayTtsError('No se encontraron voces en español.');
+                return;
+            }
+
+            utterance.voice = selectedVoice;
+            utterance.rate = 1;
+            utterance.pitch = isMaleVoice ? 0.8 : 1.2; // Adjust pitch for male/female effect
+            utterance.volume = 1;
+
+            // Cancel any ongoing speech
+            synth.cancel();
+            synth.speak(utterance);
+
+            // Handle speech errors
+            utterance.onerror = (event) => {
+                displayTtsError('Error al reproducir audio: ' + event.error);
+            };
+        }
+
+        function displayTtsError(message) {
+            const responseArea = document.getElementById('responseArea');
+            responseArea.innerHTML += `<p class="tts-error">${message}</p>`;
+        }
+
+        document.getElementById('voiceToggle').addEventListener('click', () => {
+            isMaleVoice = !isMaleVoice;
+            document.getElementById('voiceToggle').textContent = `Voz: ${isMaleVoice ? 'Masculina' : 'Femenina'}`;
+        });
+
+        document.getElementById('queryForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+            const query = document.getElementById('queryInput').value;
+            if (query.trim() === '') return;
+            document.getElementById('responseArea').innerHTML = '<p class="text-muted">Cargando...</p>';
+            sendQueryToAPI(query);
+        });
+
+        document.getElementById('clearHistory').addEventListener('click', function() {
+            history = [];
+            document.getElementById('historyList').innerHTML = '';
+        });
+
+        async function sendQueryToAPI(query) {
+            const apiKey = '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';
+            const apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: 'mistralai/mistral-7b-instruct',
+                        messages: [
+                            { role: 'system', content: 'You are a helpful assistant.' },
+                            { role: 'user', content: query }
+                        ],
+                        max_tokens: 500
+                    })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    const responseText = data.choices[0].message.content;
+                    displayResponse(responseText);
+                    addToHistory(query, responseText);
+                    // Wait for voices to be loaded before speaking
+                    if (voices.length === 0) {
+                        setTimeout(() => speakText(responseText), 500);
+                    } else {
+                        speakText(responseText);
+                    }
+                } else {
+                    let errorMsg = `Error: ${response.status}`;
+                    try {
+                        const errorData = await response.json();
+                        errorMsg += ` - ${errorData.error?.message || 'No se pudo obtener respuesta de la API.'}`;
+                    } catch (e) {
+                        errorMsg += ' - Error desconocido.';
+                    }
+                    displayResponse(errorMsg);
+                }
+            } catch (error) {
+                const errorMsg = 'Error: ' + error.message;
+                displayResponse(errorMsg);
+            }
+        }
+
+        function displayResponse(text) {
+            const responseArea = document.getElementById('responseArea');
+            responseArea.classList.remove('show');
+            setTimeout(() => {
+                responseArea.innerHTML = `<p>${text}</p>`;
+                responseArea.classList.add('show');
+            }, 100);
+        }
+
+        function addToHistory(query, response) {
+            history.push({ query, response });
+            updateHistoryList();
+        }
+
+        function updateHistoryList() {
+            const historyList = document.getElementById('historyList');
+            historyList.innerHTML = '';
+            history.forEach((item, index) => {
+                const listItem = document.createElement('li');
+                listItem.className = 'list-group-item';
+                listItem.style.setProperty('--index', index);
+                listItem.innerHTML = `<strong>Consulta ${index + 1}:</strong> ${item.query}<br><strong>Respuesta:</strong> ${item.response}`;
+                historyList.appendChild(listItem);
+            });
+        }
+    </script>
+</body>
+</html>
